@@ -68,14 +68,34 @@ void LSNebulaAudioProcessorEditor::timerCallback()
     const auto cy = std::cos (rotateY), sy = std::sin (rotateY);
     const auto cx = std::cos (rotateX), sx = std::sin (rotateX);
 
+    // A permanent circle made from tiny particles, not a blurred solid shape.
+    const auto guideColour = juce::Colour::fromRGB (237, 28, 36);
+    const auto guideRadius = boundary * 0.90f;
+    for (int i = 0; i < 420; ++i)
+    {
+        const auto a = juce::MathConstants<float>::twoPi * static_cast<float> (i) / 420.0f;
+        const auto x = centre.x + std::cos (a) * guideRadius;
+        const auto y = centre.y + std::sin (a) * guideRadius;
+        g.setColour (guideColour.withAlpha (0.24f));
+        g.fillEllipse (x - 0.30f, y - 0.30f, 0.60f, 0.60f);
+    }
+
     for (auto& q : particles)
     {
         const auto energy = processor.getSpectrumBand (q.band);
-        const auto membrane = std::sin (q.longitude * 3.0f + time * 1.8f + q.phase * 0.18f)
-                            + 0.55f * std::sin (q.latitude * 5.0f - time * 1.35f + q.phase);
-        const auto fine = noise (q.longitude * 1.4f, q.latitude * 1.7f, time + q.phase) * 0.55f;
-        const auto radius = q.layer * (1.0f + membrane * (0.018f + energy * 0.105f)
-                                            + fine * (0.012f + energy * 0.040f));
+        const auto frequencyPosition = static_cast<float> (q.band)
+                                     / static_cast<float> (LSNebulaAudioProcessor::spectrumBandCount - 1);
+        const auto motionRate = juce::jmap (frequencyPosition, 0.58f, 2.35f);
+        const auto localTime = time * motionRate;
+        const auto spatialDetail = juce::jmap (frequencyPosition, 2.2f, 8.5f);
+        const auto membrane = std::sin (q.longitude * spatialDetail + localTime * 1.8f + q.phase * 0.18f)
+                            + 0.55f * std::sin (q.latitude * (spatialDetail + 2.0f) - localTime * 1.35f + q.phase);
+        const auto fine = noise (q.longitude * (1.0f + frequencyPosition),
+                                 q.latitude * (1.3f + frequencyPosition),
+                                 localTime + q.phase) * 0.55f;
+        const auto movementAmount = juce::jmap (frequencyPosition, 1.15f, 0.72f);
+        const auto radius = q.layer * (1.0f + membrane * (0.018f + energy * 0.215f * movementAmount)
+                                            + fine * (0.012f + energy * 0.085f * movementAmount));
         const auto x0 = q.direction.x * radius;
         const auto y0 = q.direction.y * radius;
         const auto z0 = q.direction.z * radius;
@@ -97,33 +117,25 @@ void LSNebulaAudioProcessorEditor::timerCallback()
         return particles[a].depth < particles[b].depth;
     });
 
-    const auto lowColour = juce::Colour::fromRGB (112, 3, 13);
-    const auto midColour = juce::Colour::fromRGB (237, 28, 36);
-    const auto highColour = juce::Colour::fromRGB (255, 86, 96);
+    const auto nebulaRed = juce::Colour::fromRGB (237, 28, 36);
     for (const auto index : order)
     {
         const auto& q = particles[index];
         const auto energy = processor.getSpectrumBand (q.band);
         const auto hot = processor.getSpectrumDecibels (q.band) > -4.0f;
-        const auto frequencyPosition = static_cast<float> (q.band)
-                                     / static_cast<float> (LSNebulaAudioProcessor::spectrumBandCount - 1);
-        auto colour = frequencyPosition < 0.48f
-                    ? lowColour.interpolatedWith (midColour, frequencyPosition / 0.48f)
-                    : midColour.interpolatedWith (highColour, (frequencyPosition - 0.48f) / 0.52f);
-        if (hot)
-            colour = colour.interpolatedWith (juce::Colours::white, 0.58f);
+        const auto colour = hot ? nebulaRed.brighter (0.72f) : nebulaRed;
 
         const auto front = juce::jmap (juce::jlimit (-1.0f, 1.0f, q.depth), -1.0f, 1.0f, 0.18f, 1.0f);
         const auto layerAlpha = q.layer > 0.95f ? 1.0f : (q.layer > 0.80f ? 0.52f : 0.28f);
         const auto alpha = juce::jlimit (0.015f, 1.0f,
-                                         (0.10f + energy * 0.70f + level * 0.08f)
-                                         * q.brightness * front * layerAlpha * (hot ? 1.85f : 1.0f));
+                                         (0.14f + energy * 0.98f + level * 0.10f)
+                                         * q.brightness * front * layerAlpha * (hot ? 2.55f : 1.0f));
         const auto dot = juce::jlimit (0.28f, 1.32f,
                                        q.size * (0.72f + energy * 0.48f + (hot ? 0.22f : 0.0f)));
         if (hot)
         {
-            g.setColour (colour.withAlpha (alpha * 0.22f));
-            const auto tightGlow = dot * 2.6f;
+            g.setColour (colour.withAlpha (alpha * 0.36f));
+            const auto tightGlow = dot * 3.2f;
             g.fillEllipse (q.p.x - tightGlow * 0.5f, q.p.y - tightGlow * 0.5f, tightGlow, tightGlow);
         }
         g.setColour (colour.withAlpha (alpha));

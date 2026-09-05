@@ -56,7 +56,10 @@ void LSNebulaAudioProcessor::analyseSpectrum() noexcept
         auto target = juce::jlimit (0.0f, 1.0f, juce::jmap (decibels, -84.0f, -24.0f, 0.0f, 1.0f));
         target = std::sqrt (target);
         const auto old = spectrumBands[static_cast<size_t> (band)].load();
-        const auto coefficient = target > old ? 0.90f : 0.12f;
+        const auto frequencyPosition = static_cast<float> (band) / static_cast<float> (spectrumBandCount - 1);
+        const auto attack = juce::jmap (frequencyPosition, 0.76f, 0.96f);
+        const auto release = juce::jmap (frequencyPosition, 0.075f, 0.22f);
+        const auto coefficient = target > old ? attack : release;
         spectrumBands[static_cast<size_t> (band)].store (old + (target - old) * coefficient);
     }
 }
