@@ -77,13 +77,13 @@ void LSNebulaAudioProcessorEditor::timerCallback()
                                      / static_cast<float> (LSNebulaAudioProcessor::spectrumBandCount - 1);
         const auto a = q.angle + time * (0.07f + frequencyPosition * 0.05f) * q.speed;
 
-        q.radius -= q.inwardSpeed * (0.65f + spectrum * 4.5f + hit * 1.5f);
+        q.radius -= q.inwardSpeed * (0.65f + spectrum * 8.5f + hit * 3.0f);
         if (q.radius < 0.18f)
             q.radius = 0.94f + random.nextFloat() * 0.055f;
 
-        const auto broadWave = std::sin (a * 3.0f + time * 1.15f + q.phase) * (0.035f + spectrum * 0.12f);
-        const auto fineWave = std::sin (a * 7.0f - time * 1.8f + q.phase * 0.63f) * (0.018f + spectrum * 0.055f);
-        const auto organic = noise (a * 67.0f, q.phase * 43.0f, time) * (0.010f + spectrum * 0.030f);
+        const auto broadWave = std::sin (a * 3.0f + time * 1.15f + q.phase) * (0.035f + spectrum * 0.25f);
+        const auto fineWave = std::sin (a * 7.0f - time * 1.8f + q.phase * 0.63f) * (0.018f + spectrum * 0.12f);
+        const auto organic = noise (a * 67.0f, q.phase * 43.0f, time) * (0.010f + spectrum * 0.065f);
         const auto shellWeight = juce::jlimit (0.0f, 1.0f, (q.radius - 0.45f) * 2.2f);
         const auto radial = juce::jlimit (0.10f, 0.995f,
                                          q.radius + (broadWave + fineWave + organic) * shellWeight);
@@ -99,12 +99,12 @@ void LSNebulaAudioProcessorEditor::timerCallback()
 
         const auto edge = juce::jmap (radial, 0.10f, 1.0f, 0.24f, 1.0f);
         const auto alpha = juce::jlimit (0.018f, 0.98f,
-                                         (0.075f + spectrum * 0.82f + level * 0.16f)
+                                         (0.070f + spectrum * 1.18f + level * 0.20f)
                                          * q.brightness * edge);
-        const auto dot = q.size * (0.75f + spectrum * 0.85f);
+        const auto dot = q.size * (0.70f + spectrum * 1.20f);
 
         g.setColour (colour.withAlpha (alpha * 0.10f));
-        const auto glow = dot * (6.0f + spectrum * 7.0f);
+        const auto glow = dot * (6.0f + spectrum * 12.0f);
         g.fillEllipse (q.p.x - glow * 0.5f, q.p.y - glow * 0.5f, glow, glow);
         g.setColour (colour.brighter (0.38f).withAlpha (alpha));
         g.fillEllipse (q.p.x - dot * 0.5f, q.p.y - dot * 0.5f, dot, dot);

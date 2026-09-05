@@ -48,9 +48,10 @@ void LSNebulaAudioProcessor::analyseSpectrum() noexcept
             peakMagnitude = juce::jmax (peakMagnitude, fftData[static_cast<size_t> (bin)]);
 
         const auto decibels = juce::Decibels::gainToDecibels (peakMagnitude / fftSize, -90.0f);
-        const auto target = juce::jlimit (0.0f, 1.0f, juce::jmap (decibels, -72.0f, -12.0f, 0.0f, 1.0f));
+        auto target = juce::jlimit (0.0f, 1.0f, juce::jmap (decibels, -84.0f, -24.0f, 0.0f, 1.0f));
+        target = std::sqrt (target);
         const auto old = spectrumBands[static_cast<size_t> (band)].load();
-        const auto coefficient = target > old ? 0.72f : 0.16f;
+        const auto coefficient = target > old ? 0.90f : 0.12f;
         spectrumBands[static_cast<size_t> (band)].store (old + (target - old) * coefficient);
     }
 }
