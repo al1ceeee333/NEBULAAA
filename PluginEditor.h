@@ -16,15 +16,16 @@ private:
     struct Particle
     {
         juce::Point<float> p, previous;
-        float angle = 0.0f;
-        float shell = 1.0f;
+        juce::Vector3D<float> direction;
+        float longitude = 0.0f;
+        float latitude = 0.0f;
+        float layer = 1.0f;
         float phase = 0.0f;
         float speed = 1.0f;
         float brightness = 0.5f;
         float size = 1.0f;
-        float radius = 1.0f;
-        float inwardSpeed = 0.001f;
         int band = 0;
+        float depth = 0.0f;
     };
 
     void timerCallback() override;

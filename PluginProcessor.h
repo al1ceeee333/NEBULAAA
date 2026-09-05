@@ -40,6 +40,10 @@ public:
     {
         return spectrumBands[static_cast<size_t> (juce::jlimit (0, spectrumBandCount - 1, index))].load();
     }
+    float getSpectrumDecibels (int index) const noexcept
+    {
+        return spectrumDecibels[static_cast<size_t> (juce::jlimit (0, spectrumBandCount - 1, index))].load();
+    }
 
 private:
     static constexpr int fftOrder = 11;
@@ -51,6 +55,7 @@ private:
     juce::dsp::WindowingFunction<float> fftWindow { fftSize, juce::dsp::WindowingFunction<float>::hann };
     std::array<float, fftSize * 2> fftData {};
     std::array<std::atomic<float>, spectrumBandCount> spectrumBands;
+    std::array<std::atomic<float>, spectrumBandCount> spectrumDecibels;
     int fftWritePosition = 0;
     double currentSampleRate = 44100.0;
     std::atomic<float> level { 0.0f }, bass { 0.0f }, mid { 0.0f };

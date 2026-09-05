@@ -7,6 +7,8 @@ LSNebulaAudioProcessor::LSNebulaAudioProcessor()
 {
     for (auto& band : spectrumBands)
         band.store (0.0f);
+    for (auto& band : spectrumDecibels)
+        band.store (-100.0f);
 }
 
 void LSNebulaAudioProcessor::prepareToPlay (double sr, int blockSize)
@@ -47,7 +49,10 @@ void LSNebulaAudioProcessor::analyseSpectrum() noexcept
         for (int bin = firstBin; bin <= lastBin; ++bin)
             peakMagnitude = juce::jmax (peakMagnitude, fftData[static_cast<size_t> (bin)]);
 
-        const auto decibels = juce::Decibels::gainToDecibels (peakMagnitude / fftSize, -90.0f);
+        // A Hann window reduces a bin-centred sine to roughly one quarter of N.
+        // Compensating here gives a useful approximate dBFS value for the visual threshold.
+        const auto decibels = juce::Decibels::gainToDecibels (peakMagnitude / (fftSize * 0.25f), -100.0f);
+        spectrumDecibels[static_cast<size_t> (band)].store (decibels);
         auto target = juce::jlimit (0.0f, 1.0f, juce::jmap (decibels, -84.0f, -24.0f, 0.0f, 1.0f));
         target = std::sqrt (target);
         const auto old = spectrumBands[static_cast<size_t> (band)].load();

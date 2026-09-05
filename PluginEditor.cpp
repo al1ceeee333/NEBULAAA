@@ -1,4 +1,6 @@
 #include "PluginEditor.h"
+#include <algorithm>
+#include <numeric>
 
 LSNebulaAudioProcessorEditor::LSNebulaAudioProcessorEditor (LSNebulaAudioProcessor& p)
     : AudioProcessorEditor (&p), processor (p)
@@ -7,40 +9,42 @@ LSNebulaAudioProcessorEditor::LSNebulaAudioProcessorEditor (LSNebulaAudioProcess
     setResizable (true, true);
     setResizeLimits (400, 400, 1200, 1200);
     setSize (700, 700);
-    particles.resize (2600);
+    particles.resize (4200);
     initialiseParticles();
     startTimerHz (60);
 }
 
 float LSNebulaAudioProcessorEditor::noise (float x, float y, float z) const
 {
-    return std::sin (x * 0.019f + std::sin (y * 0.027f + z))
-         + 0.55f * std::cos (y * 0.023f - std::sin (x * 0.017f - z * 0.71f));
+    return std::sin (x * 1.7f + z) * 0.55f
+         + std::cos (y * 2.3f - z * 0.73f) * 0.30f
+         + std::sin ((x + y) * 3.1f + z * 1.21f) * 0.15f;
 }
 
 void LSNebulaAudioProcessorEditor::initialiseParticles()
 {
-    const auto w = static_cast<float> (juce::jmax (1, getWidth()));
-    const auto h = static_cast<float> (juce::jmax (1, getHeight()));
-    const juce::Point<float> centre (w * 0.5f, h * 0.5f);
-    const auto boundary = juce::jmin (w, h) * 0.37f;
-
+    constexpr auto goldenAngle = 2.39996323f;
+    const auto count = static_cast<float> (particles.size());
     for (size_t i = 0; i < particles.size(); ++i)
     {
         auto& q = particles[i];
-        q.angle = juce::MathConstants<float>::twoPi * random.nextFloat();
-        q.band = static_cast<int> (i % LSNebulaAudioProcessor::spectrumBandCount);
-        q.shell = random.nextFloat() < 0.78f ? 0.80f + 0.20f * std::sqrt (random.nextFloat())
-                                             : 0.22f + 0.58f * std::sqrt (random.nextFloat());
-        q.radius = q.shell;
+        const auto fi = static_cast<float> (i);
+        const auto y = 1.0f - 2.0f * ((fi + 0.5f) / count);
+        const auto horizontal = std::sqrt (juce::jmax (0.0f, 1.0f - y * y));
+        const auto longitude = goldenAngle * fi;
+        q.direction = { std::cos (longitude) * horizontal, y, std::sin (longitude) * horizontal };
+        q.longitude = std::atan2 (q.direction.z, q.direction.x);
+        q.latitude = std::asin (q.direction.y);
+        const auto layerChoice = random.nextFloat();
+        q.layer = layerChoice < 0.62f ? 1.0f : (layerChoice < 0.86f ? 0.88f : 0.74f);
+        const auto frequencyPosition = juce::jlimit (0.0f, 0.999f,
+                                                     (q.longitude + juce::MathConstants<float>::pi)
+                                                     / juce::MathConstants<float>::twoPi);
+        q.band = static_cast<int> (frequencyPosition * LSNebulaAudioProcessor::spectrumBandCount);
         q.phase = random.nextFloat() * juce::MathConstants<float>::twoPi;
-        q.speed = 0.55f + random.nextFloat() * 1.25f;
-        q.inwardSpeed = 0.00022f + random.nextFloat() * 0.00065f;
-        q.brightness = 0.28f + random.nextFloat() * 0.72f;
-        q.size = 0.22f + random.nextFloat() * 0.62f;
-        q.p = centre + juce::Point<float> (std::cos (q.angle) * boundary * q.radius,
-                                           std::sin (q.angle) * boundary * q.radius * 0.97f);
-        q.previous = q.p;
+        q.speed = 0.75f + random.nextFloat() * 0.50f;
+        q.brightness = 0.38f + random.nextFloat() * 0.62f;
+        q.size = 0.34f + random.nextFloat() * 0.48f;
     }
 }
 
@@ -49,71 +53,81 @@ void LSNebulaAudioProcessorEditor::timerCallback()
     const auto w = getWidth(), h = getHeight();
     if (w <= 0 || h <= 0) return;
     if (! trail.isValid() || trail.getWidth() != w || trail.getHeight() != h)
-    {
-        trail = juce::Image (juce::Image::ARGB, w, h, true);
-        initialiseParticles();
-    }
+        trail = juce::Image (juce::Image::RGB, w, h, true);
 
     const auto level = processor.getLevel();
     const auto mid = processor.getMid();
-    const auto hit = processor.getTransient();
-    time += 0.0075f + mid * 0.009f;
-
+    time += 0.0045f + mid * 0.0040f;
     juce::Graphics g (trail);
-    g.setColour (juce::Colours::black.withAlpha (0.115f));
-    g.fillAll();
+    g.fillAll (juce::Colours::black);
 
     const juce::Point<float> centre (w * 0.5f, h * 0.5f);
-    const auto boundary = juce::jmin (w, h) * 0.37f;
-    const auto lowColour = juce::Colour::fromRGB (112, 3, 13);
-    const auto midColour = juce::Colour::fromRGB (237, 28, 36);
-    const auto highColour = juce::Colour::fromRGB (255, 105, 113);
+    const auto boundary = juce::jmin (w, h) * 0.355f;
+    const auto rotateY = time * 0.37f;
+    const auto rotateX = std::sin (time * 0.21f) * 0.23f;
+    const auto cy = std::cos (rotateY), sy = std::sin (rotateY);
+    const auto cx = std::cos (rotateX), sx = std::sin (rotateX);
 
     for (auto& q : particles)
     {
+        const auto energy = processor.getSpectrumBand (q.band);
+        const auto membrane = std::sin (q.longitude * 3.0f + time * 1.8f + q.phase * 0.18f)
+                            + 0.55f * std::sin (q.latitude * 5.0f - time * 1.35f + q.phase);
+        const auto fine = noise (q.longitude * 1.4f, q.latitude * 1.7f, time + q.phase) * 0.55f;
+        const auto radius = q.layer * (1.0f + membrane * (0.018f + energy * 0.105f)
+                                            + fine * (0.012f + energy * 0.040f));
+        const auto x0 = q.direction.x * radius;
+        const auto y0 = q.direction.y * radius;
+        const auto z0 = q.direction.z * radius;
+        const auto x1 = x0 * cy + z0 * sy;
+        const auto z1 = -x0 * sy + z0 * cy;
+        const auto y2 = y0 * cx - z1 * sx;
+        const auto z2 = y0 * sx + z1 * cx;
+        const auto perspective = 1.0f / (1.70f - z2 * 0.35f);
+        const auto scale = boundary * 1.48f * perspective;
         q.previous = q.p;
-        const auto spectrum = processor.getSpectrumBand (q.band);
+        q.p = centre + juce::Point<float> (x1 * scale, y2 * scale);
+        q.depth = z2;
+    }
+
+    std::vector<size_t> order (particles.size());
+    std::iota (order.begin(), order.end(), 0);
+    std::sort (order.begin(), order.end(), [this] (size_t a, size_t b)
+    {
+        return particles[a].depth < particles[b].depth;
+    });
+
+    const auto lowColour = juce::Colour::fromRGB (112, 3, 13);
+    const auto midColour = juce::Colour::fromRGB (237, 28, 36);
+    const auto highColour = juce::Colour::fromRGB (255, 86, 96);
+    for (const auto index : order)
+    {
+        const auto& q = particles[index];
+        const auto energy = processor.getSpectrumBand (q.band);
+        const auto hot = processor.getSpectrumDecibels (q.band) > -4.0f;
         const auto frequencyPosition = static_cast<float> (q.band)
                                      / static_cast<float> (LSNebulaAudioProcessor::spectrumBandCount - 1);
-        const auto a = q.angle + time * (0.07f + frequencyPosition * 0.05f) * q.speed;
+        auto colour = frequencyPosition < 0.48f
+                    ? lowColour.interpolatedWith (midColour, frequencyPosition / 0.48f)
+                    : midColour.interpolatedWith (highColour, (frequencyPosition - 0.48f) / 0.52f);
+        if (hot)
+            colour = colour.interpolatedWith (juce::Colours::white, 0.58f);
 
-        q.radius -= q.inwardSpeed * (0.65f + spectrum * 8.5f + hit * 3.0f);
-        if (q.radius < 0.18f)
-            q.radius = 0.94f + random.nextFloat() * 0.055f;
-
-        const auto broadWave = std::sin (a * 3.0f + time * 1.15f + q.phase) * (0.035f + spectrum * 0.25f);
-        const auto fineWave = std::sin (a * 7.0f - time * 1.8f + q.phase * 0.63f) * (0.018f + spectrum * 0.12f);
-        const auto organic = noise (a * 67.0f, q.phase * 43.0f, time) * (0.010f + spectrum * 0.065f);
-        const auto shellWeight = juce::jlimit (0.0f, 1.0f, (q.radius - 0.45f) * 2.2f);
-        const auto radial = juce::jlimit (0.10f, 0.995f,
-                                         q.radius + (broadWave + fineWave + organic) * shellWeight);
-        const auto squash = 0.96f + 0.025f * std::sin (time * 0.43f);
-        q.p = centre + juce::Point<float> (std::cos (a) * boundary * radial,
-                                           std::sin (a) * boundary * radial * squash);
-
-        juce::Colour colour;
-        if (frequencyPosition < 0.45f)
-            colour = lowColour.interpolatedWith (midColour, frequencyPosition / 0.45f);
-        else
-            colour = midColour.interpolatedWith (highColour, (frequencyPosition - 0.45f) / 0.55f);
-
-        const auto edge = juce::jmap (radial, 0.10f, 1.0f, 0.24f, 1.0f);
-        const auto alpha = juce::jlimit (0.018f, 0.98f,
-                                         (0.070f + spectrum * 1.18f + level * 0.20f)
-                                         * q.brightness * edge);
-        const auto dot = q.size * (0.70f + spectrum * 1.20f);
-
-        g.setColour (colour.withAlpha (alpha * 0.10f));
-        const auto glow = dot * (6.0f + spectrum * 12.0f);
-        g.fillEllipse (q.p.x - glow * 0.5f, q.p.y - glow * 0.5f, glow, glow);
-        g.setColour (colour.brighter (0.38f).withAlpha (alpha));
-        g.fillEllipse (q.p.x - dot * 0.5f, q.p.y - dot * 0.5f, dot, dot);
-
-        if (spectrum > 0.42f && radial > 0.62f)
+        const auto front = juce::jmap (juce::jlimit (-1.0f, 1.0f, q.depth), -1.0f, 1.0f, 0.18f, 1.0f);
+        const auto layerAlpha = q.layer > 0.95f ? 1.0f : (q.layer > 0.80f ? 0.52f : 0.28f);
+        const auto alpha = juce::jlimit (0.015f, 1.0f,
+                                         (0.10f + energy * 0.70f + level * 0.08f)
+                                         * q.brightness * front * layerAlpha * (hot ? 1.85f : 1.0f));
+        const auto dot = juce::jlimit (0.28f, 1.32f,
+                                       q.size * (0.72f + energy * 0.48f + (hot ? 0.22f : 0.0f)));
+        if (hot)
         {
-            g.setColour (colour.withAlpha (alpha * 0.18f));
-            g.drawLine ({ q.previous, q.p }, 0.28f);
+            g.setColour (colour.withAlpha (alpha * 0.22f));
+            const auto tightGlow = dot * 2.6f;
+            g.fillEllipse (q.p.x - tightGlow * 0.5f, q.p.y - tightGlow * 0.5f, tightGlow, tightGlow);
         }
+        g.setColour (colour.withAlpha (alpha));
+        g.fillEllipse (q.p.x - dot * 0.5f, q.p.y - dot * 0.5f, dot, dot);
     }
     repaint();
 }
