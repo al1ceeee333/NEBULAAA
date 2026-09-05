@@ -3,10 +3,17 @@
 
 LSNebulaAudioProcessor::LSNebulaAudioProcessor()
     : AudioProcessor (BusesProperties().withInput ("Input", juce::AudioChannelSet::stereo(), true)
-                                       .withOutput ("Output", juce::AudioChannelSet::stereo(), true)) {}
+                                       .withOutput ("Output", juce::AudioChannelSet::stereo(), true))
+{
+    for (auto& band : spectrumBands)
+        band.store (0.0f);
+}
 
 void LSNebulaAudioProcessor::prepareToPlay (double sr, int blockSize)
 {
+    currentSampleRate = sr;
+    fftWritePosition = 0;
+    fftData.fill (0.0f);
     juce::dsp::ProcessSpec spec { sr, static_cast<juce::uint32> (blockSize), 1 };
     lowPass.prepare (spec);
     highPass.prepare (spec);
@@ -15,6 +22,37 @@ void LSNebulaAudioProcessor::prepareToPlay (double sr, int blockSize)
     lowPass.setCutoffFrequency (180.0f);
     highPass.setCutoffFrequency (3500.0f);
     lowPass.reset(); highPass.reset(); envelope = 0.0f;
+}
+
+void LSNebulaAudioProcessor::analyseSpectrum() noexcept
+{
+    fftWindow.multiplyWithWindowingTable (fftData.data(), fftSize);
+    forwardFFT.performFrequencyOnlyForwardTransform (fftData.data());
+
+    constexpr float minimumFrequency = 30.0f;
+    const auto maximumFrequency = static_cast<float> (juce::jmin (18000.0, currentSampleRate * 0.48));
+
+    for (int band = 0; band < spectrumBandCount; ++band)
+    {
+        const auto t0 = static_cast<float> (band) / spectrumBandCount;
+        const auto t1 = static_cast<float> (band + 1) / spectrumBandCount;
+        const auto f0 = minimumFrequency * std::pow (maximumFrequency / minimumFrequency, t0);
+        const auto f1 = minimumFrequency * std::pow (maximumFrequency / minimumFrequency, t1);
+        const auto firstBin = juce::jlimit (1, fftSize / 2,
+                                            static_cast<int> (f0 * fftSize / currentSampleRate));
+        const auto lastBin = juce::jlimit (firstBin, fftSize / 2,
+                                           static_cast<int> (f1 * fftSize / currentSampleRate));
+
+        float peakMagnitude = 0.0f;
+        for (int bin = firstBin; bin <= lastBin; ++bin)
+            peakMagnitude = juce::jmax (peakMagnitude, fftData[static_cast<size_t> (bin)]);
+
+        const auto decibels = juce::Decibels::gainToDecibels (peakMagnitude / fftSize, -90.0f);
+        const auto target = juce::jlimit (0.0f, 1.0f, juce::jmap (decibels, -72.0f, -12.0f, 0.0f, 1.0f));
+        const auto old = spectrumBands[static_cast<size_t> (band)].load();
+        const auto coefficient = target > old ? 0.72f : 0.16f;
+        spectrumBands[static_cast<size_t> (band)].store (old + (target - old) * coefficient);
+    }
 }
 
 bool LSNebulaAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -36,6 +74,15 @@ void LSNebulaAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
         float mono = 0.0f;
         for (int ch = 0; ch < channels; ++ch) mono += buffer.getSample (ch, i);
         mono /= static_cast<float> (channels);
+
+        fftData[static_cast<size_t> (fftWritePosition++)] = mono;
+        if (fftWritePosition == fftSize)
+        {
+            analyseSpectrum();
+            fftWritePosition = 0;
+            std::fill (fftData.begin(), fftData.end(), 0.0f);
+        }
+
         const auto lo = lowPass.processSample (0, mono);
         const auto hi = highPass.processSample (0, mono);
         sum += mono * mono; lowSum += lo * lo; highSum += hi * hi;

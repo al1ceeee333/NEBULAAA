@@ -22,7 +22,9 @@ private:
         float speed = 1.0f;
         float brightness = 0.5f;
         float size = 1.0f;
-        bool inner = false;
+        float radius = 1.0f;
+        float inwardSpeed = 0.001f;
+        int band = 0;
     };
 
     void timerCallback() override;
