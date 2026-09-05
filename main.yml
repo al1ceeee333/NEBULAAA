@@ -1,0 +1,33 @@
+name: Build NEBULA for macOS
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - name: Projekt laden
+        uses: actions/checkout@v4
+
+      - name: Universal macOS VST3 konfigurieren
+        run: >-
+          cmake -S . -B build -G Xcode
+          -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+          -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+
+      - name: VST3 bauen
+        run: cmake --build build --config Release --target NEBULA_VST3
+
+      - name: VST3 lokal signieren
+        run: codesign --force --deep --sign - "build/NEBULA_artefacts/Release/VST3/NEBULA.vst3"
+
+      - name: Download-ZIP erstellen
+        run: ditto -c -k --keepParent "build/NEBULA_artefacts/Release/VST3/NEBULA.vst3" "NEBULA-macOS-VST3.zip"
+
+      - name: Fertiges Plugin bereitstellen
+        uses: actions/upload-artifact@v4
+        with:
+          name: NEBULA-macOS-VST3
+          path: NEBULA-macOS-VST3.zip
+          if-no-files-found: error
