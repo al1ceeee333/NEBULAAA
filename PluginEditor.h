@@ -16,7 +16,12 @@ private:
     struct Particle
     {
         juce::Point<float> p, previous;
-        juce::Vector3D<float> direction;
+        struct Direction
+        {
+            float x = 0.0f;
+            float y = 0.0f;
+            float z = 0.0f;
+        } direction;
         float longitude = 0.0f;
         float latitude = 0.0f;
         float layer = 1.0f;
