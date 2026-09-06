@@ -10,8 +10,8 @@ constexpr float twoPi = juce::MathConstants<float>::twoPi;
 LSNebulaAudioProcessorEditor::LSNebulaAudioProcessorEditor (LSNebulaAudioProcessor& p)
     : AudioProcessorEditor (&p), processor (p)
 {
-    horseSheet = juce::ImageFileFormat::loadFrom (HorseAssets::HorseGallop_png,
-                                                   HorseAssets::HorseGallop_pngSize);
+    horseSheet = juce::ImageFileFormat::loadFrom (HorseGallop_png,
+                                                   HorseGallop_png_len);
     setOpaque (true);
     setResizable (true, true);
     setResizeLimits (480, 360, 1400, 1050);

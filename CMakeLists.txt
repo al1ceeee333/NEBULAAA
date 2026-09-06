@@ -29,17 +29,13 @@ juce_add_plugin(NEBULA
 
 juce_generate_juce_header(NEBULA)
 
-juce_add_binary_data(NEBULAAssets
-  HEADER_NAME HorseAssets.h
-  NAMESPACE HorseAssets
-  SOURCES Assets/HorseGallop.png
-)
-
 target_sources(NEBULA PRIVATE
   Source/PluginProcessor.cpp
   Source/PluginProcessor.h
   Source/PluginEditor.cpp
   Source/PluginEditor.h
+  Source/HorseAssets.cpp
+  Source/HorseAssets.h
 )
 
 target_compile_definitions(NEBULA PUBLIC
@@ -49,7 +45,6 @@ target_compile_definitions(NEBULA PUBLIC
 )
 
 target_link_libraries(NEBULA PRIVATE
-  NEBULAAssets
   juce::juce_audio_utils
   juce::juce_dsp
   PUBLIC
