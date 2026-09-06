@@ -48,6 +48,14 @@ public:
     {
         return spectrumWidth[static_cast<size_t> (juce::jlimit (0, spectrumBandCount - 1, index))].load();
     }
+    static constexpr int waveformPointCount = 320;
+    float getMonoWaveformSample (int offset) const noexcept
+    {
+        const auto write = waveformWritePosition.load();
+        const auto index = (write + juce::jlimit (0, waveformPointCount - 1, offset))
+                         % waveformPointCount;
+        return monoWaveform[static_cast<size_t> (index)].load();
+    }
 
 private:
     static constexpr int fftOrder = 11;
@@ -62,6 +70,8 @@ private:
     std::array<std::atomic<float>, spectrumBandCount> spectrumBands;
     std::array<std::atomic<float>, spectrumBandCount> spectrumDecibels;
     std::array<std::atomic<float>, spectrumBandCount> spectrumWidth;
+    std::array<std::atomic<float>, waveformPointCount> monoWaveform;
+    std::atomic<int> waveformWritePosition { 0 };
     int fftWritePosition = 0;
     double currentSampleRate = 44100.0;
     std::atomic<float> level { 0.0f }, bass { 0.0f }, mid { 0.0f };

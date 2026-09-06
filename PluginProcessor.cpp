@@ -11,6 +11,8 @@ LSNebulaAudioProcessor::LSNebulaAudioProcessor()
         band.store (-100.0f);
     for (auto& width : spectrumWidth)
         width.store (0.0f);
+    for (auto& sample : monoWaveform)
+        sample.store (0.0f);
 }
 
 void LSNebulaAudioProcessor::prepareToPlay (double sr, int blockSize)
@@ -19,6 +21,7 @@ void LSNebulaAudioProcessor::prepareToPlay (double sr, int blockSize)
     fftWritePosition = 0;
     fftData.fill (0.0f);
     sideFFTData.fill (0.0f);
+    waveformWritePosition.store (0);
     juce::dsp::ProcessSpec spec { sr, static_cast<juce::uint32> (blockSize), 1 };
     lowPass.prepare (spec);
     highPass.prepare (spec);
@@ -108,6 +111,11 @@ void LSNebulaAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
         const auto right = channels > 1 ? buffer.getSample (1, i) : left;
         const auto mono = 0.5f * (left + right);
         const auto side = 0.5f * (left - right);
+
+        auto waveformPosition = waveformWritePosition.load();
+        monoWaveform[static_cast<size_t> (waveformPosition)].store (mono);
+        waveformPosition = (waveformPosition + 1) % waveformPointCount;
+        waveformWritePosition.store (waveformPosition);
 
         fftData[static_cast<size_t> (fftWritePosition)] = mono;
         sideFFTData[static_cast<size_t> (fftWritePosition++)] = side;

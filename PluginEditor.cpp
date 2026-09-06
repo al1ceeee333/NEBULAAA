@@ -9,7 +9,7 @@ LSNebulaAudioProcessorEditor::LSNebulaAudioProcessorEditor (LSNebulaAudioProcess
     setResizable (true, true);
     setResizeLimits (400, 400, 1200, 1200);
     setSize (700, 700);
-    particles.resize (9000);
+    particles.resize (12000);
     initialiseParticles();
     startTimerHz (60);
 }
@@ -138,28 +138,57 @@ void LSNebulaAudioProcessorEditor::timerCallback()
     });
 
     const auto nebulaRed = juce::Colour::fromRGB (237, 28, 36);
+
+    // Draw all halos first with opaque, fixed dark-red steps. Because these
+    // colours are not translucent, overlaps cannot add brightness on audio hits.
     for (const auto index : order)
     {
         const auto& q = particles[index];
-        const auto colour = nebulaRed;
+        const auto dot = juce::jlimit (0.62f, 1.18f, q.size * 0.96f);
+        const auto outerGlow = dot * 3.4f;
+        const auto innerGlow = dot * 2.0f;
+        g.setColour (juce::Colour::fromRGB (34, 3, 5));
+        g.fillEllipse (q.p.x - outerGlow * 0.5f, q.p.y - outerGlow * 0.5f,
+                       outerGlow, outerGlow);
+        g.setColour (juce::Colour::fromRGB (88, 9, 13));
+        g.fillEllipse (q.p.x - innerGlow * 0.5f, q.p.y - innerGlow * 0.5f,
+                       innerGlow, innerGlow);
+    }
 
-        const auto front = juce::jmap (juce::jlimit (-1.0f, 1.0f, q.depth), -1.0f, 1.0f, 0.0f, 1.0f);
-        const auto layerVisibility = q.layer > 0.95f ? 1.0f : (q.layer > 0.80f ? 0.82f : 0.68f);
-        // Appearance never depends on the input: every particle permanently
-        // keeps the same red core and a soft red halo. Audio only changes motion.
-        const auto idleAlpha = (0.34f + front * 0.42f)
-                             * layerVisibility
-                             * (0.72f + q.brightness * 0.28f);
-        const auto alpha = juce::jlimit (0.30f, 0.88f, idleAlpha);
-        const auto dot = juce::jlimit (0.48f, 1.18f, q.size * 0.96f);
-
-        const auto glow = dot * 3.6f;
-        g.setColour (nebulaRed.withAlpha ((0.055f + front * 0.055f) * layerVisibility));
-        g.fillEllipse (q.p.x - glow * 0.5f, q.p.y - glow * 0.5f, glow, glow);
-
-        g.setColour (colour.withAlpha (alpha));
+    // Cores are rendered in a separate opaque pass, always exact #ED1C24.
+    for (const auto index : order)
+    {
+        const auto& q = particles[index];
+        const auto dot = juce::jlimit (0.62f, 1.18f, q.size * 0.96f);
+        g.setColour (nebulaRed);
         g.fillEllipse (q.p.x - dot * 0.5f, q.p.y - dot * 0.5f, dot, dot);
     }
+
+    // Central particulate oscilloscope. It reads only Mid/Mono (L + R) / 2;
+    // stereo-only Side information is intentionally excluded.
+    std::array<juce::Point<float>, LSNebulaAudioProcessor::waveformPointCount> waveformPoints;
+    for (int i = 0; i < LSNebulaAudioProcessor::waveformPointCount; ++i)
+    {
+        const auto position = static_cast<float> (i)
+                            / static_cast<float> (LSNebulaAudioProcessor::waveformPointCount - 1);
+        const auto sample = std::tanh (processor.getMonoWaveformSample (i) * 2.4f);
+        const auto x = centre.x + (position - 0.5f) * guideRadius * 1.22f;
+        const auto envelope = std::sin (juce::MathConstants<float>::pi * position);
+        const auto y = centre.y - sample * boundary * 0.24f * envelope;
+        waveformPoints[static_cast<size_t> (i)] = { x, y };
+    }
+
+    // Fixed non-additive halo, matching the sphere particles.
+    g.setColour (juce::Colour::fromRGB (34, 3, 5));
+    for (const auto& point : waveformPoints)
+        g.fillEllipse (point.x - 1.75f, point.y - 1.75f, 3.5f, 3.5f);
+    g.setColour (juce::Colour::fromRGB (88, 9, 13));
+    for (const auto& point : waveformPoints)
+        g.fillEllipse (point.x - 1.05f, point.y - 1.05f, 2.1f, 2.1f);
+    g.setColour (nebulaRed);
+    for (const auto& point : waveformPoints)
+        g.fillEllipse (point.x - 0.48f, point.y - 0.48f, 0.96f, 0.96f);
+
     repaint();
 }
 
