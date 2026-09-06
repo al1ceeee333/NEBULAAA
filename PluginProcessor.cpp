@@ -27,7 +27,8 @@ void LSNebulaAudioProcessor::prepareToPlay (double sr, int blockSize)
     highPass.prepare (spec);
     lowPass.setType (juce::dsp::LinkwitzRileyFilterType::lowpass);
     highPass.setType (juce::dsp::LinkwitzRileyFilterType::highpass);
-    lowPass.setCutoffFrequency (180.0f);
+    // The visual bass lane represents the sub/low-bass area only.
+    lowPass.setCutoffFrequency (100.0f);
     highPass.setCutoffFrequency (3500.0f);
     lowPass.reset(); highPass.reset(); envelope = 0.0f;
 }
