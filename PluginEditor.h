@@ -14,11 +14,11 @@ public:
 
 private:
     void timerCallback() override;
-    void drawHorse (juce::Graphics&, juce::Point<float>, float scale, float phase);
-    void drawLeg (juce::Graphics&, juce::Point<float> hip, float upperAngle,
-                  float lowerAngle, float upperLength, float lowerLength, float thickness);
+    void drawHorseFrame (juce::Graphics&, int frame, juce::Rectangle<float> destination,
+                         float opacity = 1.0f);
 
     LSNebulaAudioProcessor& processor;
     float displayPhase = 0.0f;
+    juce::Image horseSheet;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LSNebulaAudioProcessorEditor)
 };
