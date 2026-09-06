@@ -30,12 +30,12 @@ juce_add_plugin(NEBULA
 juce_generate_juce_header(NEBULA)
 
 target_sources(NEBULA PRIVATE
-  Source/PluginProcessor.cpp
-  Source/PluginProcessor.h
-  Source/PluginEditor.cpp
-  Source/PluginEditor.h
-  Source/HorseAssets.cpp
-  Source/HorseAssets.h
+  PluginProcessor.cpp
+  PluginProcessor.h
+  PluginEditor.cpp
+  PluginEditor.h
+  HorseAssets.cpp
+  HorseAssets.h
 )
 
 target_compile_definitions(NEBULA PUBLIC
