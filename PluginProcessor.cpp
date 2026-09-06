@@ -101,6 +101,18 @@ bool LSNebulaAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts)
 void LSNebulaAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
 {
     juce::ScopedNoDenormals noDenormals;
+
+    if (auto* playHead = getPlayHead())
+    {
+        if (const auto position = playHead->getPosition())
+        {
+            if (const auto bpm = position->getBpm())
+                hostBpm.store (static_cast<float> (*bpm));
+            if (const auto ppq = position->getPpqPosition())
+                hostPpq.store (*ppq);
+            hostIsPlaying.store (position->getIsPlaying());
+        }
+    }
     const auto channels = juce::jmax (1, buffer.getNumChannels());
     const auto samples = buffer.getNumSamples();
     float sum = 0.0f, peak = 0.0f, lowSum = 0.0f, highSum = 0.0f;

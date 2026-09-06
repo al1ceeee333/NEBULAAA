@@ -1,194 +1,137 @@
 #include "PluginEditor.h"
-#include <algorithm>
-#include <numeric>
 
 LSNebulaAudioProcessorEditor::LSNebulaAudioProcessorEditor (LSNebulaAudioProcessor& p)
     : AudioProcessorEditor (&p), processor (p)
 {
     setOpaque (true);
     setResizable (true, true);
-    setResizeLimits (400, 400, 1200, 1200);
-    setSize (700, 700);
-    particles.resize (15000);
-    initialiseParticles();
+    setResizeLimits (480, 360, 1400, 1050);
+    setSize (800, 600);
     startTimerHz (60);
-}
-
-float LSNebulaAudioProcessorEditor::noise (float x, float y, float z) const
-{
-    return std::sin (x * 1.7f + z) * 0.55f
-         + std::cos (y * 2.3f - z * 0.73f) * 0.30f
-         + std::sin ((x + y) * 3.1f + z * 1.21f) * 0.15f;
-}
-
-void LSNebulaAudioProcessorEditor::initialiseParticles()
-{
-    constexpr auto goldenAngle = 2.39996323f;
-    const auto count = static_cast<float> (particles.size());
-    for (size_t i = 0; i < particles.size(); ++i)
-    {
-        auto& q = particles[i];
-        const auto fi = static_cast<float> (i);
-        const auto y = 1.0f - 2.0f * ((fi + 0.5f) / count);
-        const auto horizontal = std::sqrt (juce::jmax (0.0f, 1.0f - y * y));
-        const auto longitude = goldenAngle * fi;
-        q.direction = { std::cos (longitude) * horizontal, y, std::sin (longitude) * horizontal };
-        q.longitude = std::atan2 (q.direction.z, q.direction.x);
-        q.latitude = std::asin (q.direction.y);
-        const auto layerChoice = random.nextFloat();
-        q.layer = layerChoice < 0.84f ? 1.0f : (layerChoice < 0.95f ? 0.94f : 0.86f);
-        const auto frequencyPosition = juce::jlimit (0.0f, 0.999f,
-                                                     (q.longitude + juce::MathConstants<float>::pi)
-                                                     / juce::MathConstants<float>::twoPi);
-        q.band = static_cast<int> (frequencyPosition * LSNebulaAudioProcessor::spectrumBandCount);
-        q.phase = random.nextFloat() * juce::MathConstants<float>::twoPi;
-        q.speed = 0.75f + random.nextFloat() * 0.50f;
-        q.brightness = 0.72f + random.nextFloat() * 0.28f;
-        q.size = 0.78f + random.nextFloat() * 0.58f;
-    }
 }
 
 void LSNebulaAudioProcessorEditor::timerCallback()
 {
-    const auto w = getWidth(), h = getHeight();
-    if (w <= 0 || h <= 0) return;
-    if (! trail.isValid() || trail.getWidth() != w || trail.getHeight() != h)
-        trail = juce::Image (juce::Image::RGB, w, h, true);
-
-    const auto mid = processor.getMid();
-    time += 0.0045f + mid * 0.0040f;
-    juce::Graphics g (trail);
-    g.fillAll (juce::Colours::black);
-
-    const juce::Point<float> centre (w * 0.5f, h * 0.5f);
-    const auto boundary = juce::jmin (w, h) * 0.355f;
-    const auto rotateY = time * 0.37f;
-    const auto rotateX = std::sin (time * 0.21f) * 0.23f;
-    const auto cy = std::cos (rotateY), sy = std::sin (rotateY);
-    const auto cx = std::cos (rotateX), sx = std::sin (rotateX);
-
-    // A permanent circle made from tiny particles, not a blurred solid shape.
-    const auto guideColour = juce::Colour::fromRGB (237, 28, 36);
-    const auto guideRadius = boundary * 0.90f;
-    for (int i = 0; i < 420; ++i)
+    const auto bpm = juce::jlimit (30.0f, 300.0f, processor.getHostBpm());
+    if (processor.getHostIsPlaying())
     {
-        const auto a = juce::MathConstants<float>::twoPi * static_cast<float> (i) / 420.0f;
-        const auto x = centre.x + std::cos (a) * guideRadius;
-        const auto y = centre.y + std::sin (a) * guideRadius;
-        g.setColour (guideColour.withAlpha (0.24f));
-        g.fillEllipse (x - 0.30f, y - 0.30f, 0.60f, 0.60f);
+        const auto ppq = static_cast<float> (processor.getHostPpq());
+        displayPhase = std::fmod (ppq * juce::MathConstants<float>::twoPi,
+                                  juce::MathConstants<float>::twoPi);
     }
-
-    for (auto& q : particles)
+    else
     {
-        const auto energy = processor.getSpectrumBand (q.band);
-        const auto stereoWidth = processor.getSpectrumWidth (q.band);
-        const auto frequencyPosition = static_cast<float> (q.band)
-                                     / static_cast<float> (LSNebulaAudioProcessor::spectrumBandCount - 1);
-        const auto motionRate = juce::jmap (frequencyPosition, 0.58f, 2.35f);
-        const auto localTime = time * motionRate;
-        const auto spatialDetail = juce::jmap (frequencyPosition, 2.0f, 7.2f);
-        // Shared phase fields create the coherent liquid sheets visible in the
-        // reference. Individual random phase is only a tiny surface texture.
-        const auto waveA = std::sin (q.longitude * spatialDetail
-                                   + q.latitude * 2.4f - localTime * 1.75f);
-        const auto waveB = std::sin (q.latitude * (spatialDetail + 1.8f)
-                                   - q.longitude * 1.7f + localTime * 1.28f);
-        const auto waveC = std::sin ((q.longitude + q.latitude) * 3.1f
-                                   + localTime * 0.82f);
-        const auto membrane = waveA * 0.58f + waveB * 0.30f + waveC * 0.12f;
-        const auto fine = std::sin (q.phase + localTime * (1.0f + frequencyPosition)) * 0.012f;
-        const auto movementAmount = juce::jmap (frequencyPosition, 1.22f, 0.78f);
-        const auto baseBreathing = 0.025f * membrane;
-        const auto audioDeformation = energy * 0.34f * movementAmount * membrane;
-        const auto radius = q.layer * (1.0f + baseBreathing + audioDeformation + fine);
-
-        // Each frequency band owns a different pseudo-random direction. The
-        // direction drifts slowly so hits scatter organically, never jitter.
-        const auto bandSeed = static_cast<float> (q.band) * 1.618034f;
-        auto scatterX = std::sin (bandSeed * 2.17f + localTime * 0.31f);
-        auto scatterY = std::cos (bandSeed * 1.43f - localTime * 0.27f);
-        auto scatterZ = std::sin (bandSeed * 2.91f + localTime * 0.19f);
-        const auto scatterLength = std::sqrt (scatterX * scatterX + scatterY * scatterY
-                                            + scatterZ * scatterZ) + 1.0e-6f;
-        scatterX /= scatterLength;
-        scatterY /= scatterLength;
-        scatterZ /= scatterLength;
-        const auto scatter = std::pow (energy, 1.35f) * (0.10f + stereoWidth * 0.16f);
-
-        const auto x0 = q.direction.x * radius + scatterX * scatter;
-        const auto y0 = q.direction.y * radius + scatterY * scatter;
-        const auto z0 = q.direction.z * radius + scatterZ * scatter;
-        const auto x1 = x0 * cy + z0 * sy;
-        const auto z1 = -x0 * sy + z0 * cy;
-        const auto y2 = y0 * cx - z1 * sx;
-        const auto z2 = y0 * sx + z1 * cx;
-        const auto perspective = 1.0f / (1.70f - z2 * 0.35f);
-        const auto scale = boundary * 1.48f * perspective;
-        q.previous = q.p;
-        q.p = centre + juce::Point<float> (x1 * scale, y2 * scale);
-        q.depth = z2;
+        displayPhase += juce::MathConstants<float>::twoPi * (bpm / 60.0f) / 60.0f;
+        displayPhase = std::fmod (displayPhase, juce::MathConstants<float>::twoPi);
     }
-
-    std::vector<size_t> order (particles.size());
-    std::iota (order.begin(), order.end(), 0);
-    std::sort (order.begin(), order.end(), [this] (size_t a, size_t b)
-    {
-        return particles[a].depth < particles[b].depth;
-    });
-
-    const auto nebulaRed = juce::Colour::fromRGB (237, 28, 36);
-
-    // Draw one fixed halo layer first. It is opaque, so overlaps cannot add
-    // input-dependent brightness.
-    for (const auto index : order)
-    {
-        const auto& q = particles[index];
-        const auto dot = juce::jlimit (0.88f, 1.55f, q.size);
-        const auto glow = dot * 2.25f;
-        g.setColour (juce::Colour::fromRGB (76, 7, 11));
-        g.fillEllipse (q.p.x - glow * 0.5f, q.p.y - glow * 0.5f, glow, glow);
-    }
-
-    // Cores are rendered in a separate opaque pass, always exact #ED1C24.
-    for (const auto index : order)
-    {
-        const auto& q = particles[index];
-        const auto dot = juce::jlimit (0.88f, 1.55f, q.size);
-        g.setColour (nebulaRed);
-        g.fillEllipse (q.p.x - dot * 0.5f, q.p.y - dot * 0.5f, dot, dot);
-    }
-
-    // Central radial particulate oscilloscope. It reads only Mid/Mono
-    // (L + R) / 2; stereo-only Side information is intentionally excluded.
-    std::array<juce::Point<float>, LSNebulaAudioProcessor::waveformPointCount> waveformPoints;
-    for (int i = 0; i < LSNebulaAudioProcessor::waveformPointCount; ++i)
-    {
-        const auto position = static_cast<float> (i)
-                            / static_cast<float> (LSNebulaAudioProcessor::waveformPointCount - 1);
-        const auto sample = std::tanh (processor.getMonoWaveformSample (i) * 3.8f);
-        const auto angle = position * juce::MathConstants<float>::twoPi
-                         - juce::MathConstants<float>::halfPi;
-        const auto waveformRadius = guideRadius * 0.285f + sample * boundary * 0.105f;
-        const auto x = centre.x + std::cos (angle) * waveformRadius;
-        const auto y = centre.y + std::sin (angle) * waveformRadius;
-        waveformPoints[static_cast<size_t> (i)] = { x, y };
-    }
-
-    // Fixed non-additive halo, matching the sphere particles.
-    g.setColour (juce::Colour::fromRGB (76, 7, 11));
-    for (const auto& point : waveformPoints)
-        g.fillEllipse (point.x - 1.25f, point.y - 1.25f, 2.5f, 2.5f);
-    g.setColour (nebulaRed);
-    for (const auto& point : waveformPoints)
-        g.fillEllipse (point.x - 0.62f, point.y - 0.62f, 1.24f, 1.24f);
-
     repaint();
+}
+
+void LSNebulaAudioProcessorEditor::drawLeg (juce::Graphics& g, juce::Point<float> hip,
+                                             float upperAngle, float lowerAngle,
+                                             float upperLength, float lowerLength,
+                                             float thickness)
+{
+    const auto knee = hip + juce::Point<float> (std::sin (upperAngle) * upperLength,
+                                                 std::cos (upperAngle) * upperLength);
+    const auto hoof = knee + juce::Point<float> (std::sin (lowerAngle) * lowerLength,
+                                                  std::cos (lowerAngle) * lowerLength);
+    g.drawLine ({ hip, knee }, thickness);
+    g.drawLine ({ knee, hoof }, thickness * 0.76f);
+    g.drawLine (hoof.x - thickness * 0.25f, hoof.y,
+                hoof.x + thickness * 1.15f, hoof.y, thickness * 0.48f);
+}
+
+void LSNebulaAudioProcessorEditor::drawHorse (juce::Graphics& g, juce::Point<float> centre,
+                                               float scale, float phase)
+{
+    juce::Graphics::ScopedSaveState saved (g);
+    g.addTransform (juce::AffineTransform::scale (scale).translated (centre.x, centre.y));
+    g.addTransform (juce::AffineTransform::translation (0.0f, std::sin (phase * 2.0f) * 3.5f));
+    g.setColour (juce::Colours::black);
+
+    const auto hindPhase = phase + 0.35f;
+    const auto frontPhase = phase + juce::MathConstants<float>::pi;
+    drawLeg (g, { -67.0f, 25.0f }, -0.72f * std::sin (hindPhase),
+             0.95f * std::sin (hindPhase + 0.85f), 56.0f, 53.0f, 13.0f);
+    drawLeg (g, { 55.0f, 22.0f }, -0.82f * std::sin (frontPhase),
+             1.10f * std::sin (frontPhase + 0.75f), 54.0f, 55.0f, 11.0f);
+
+    g.fillEllipse (-92.0f, -47.0f, 180.0f, 88.0f);
+    g.fillEllipse (-72.0f, -59.0f, 128.0f, 91.0f);
+
+    juce::Path neck;
+    neck.startNewSubPath (45.0f, -30.0f);
+    neck.cubicTo (62.0f, -62.0f, 74.0f, -88.0f, 103.0f, -91.0f);
+    neck.lineTo (126.0f, -63.0f);
+    neck.cubicTo (99.0f, -58.0f, 91.0f, -28.0f, 77.0f, 4.0f);
+    neck.closeSubPath();
+    g.fillPath (neck);
+
+    g.fillEllipse (91.0f, -105.0f, 76.0f, 48.0f);
+    g.fillEllipse (143.0f, -83.0f, 43.0f, 24.0f);
+    juce::Path ears;
+    ears.addTriangle (108.0f, -99.0f, 114.0f, -130.0f, 126.0f, -101.0f);
+    ears.addTriangle (129.0f, -99.0f, 142.0f, -124.0f, 145.0f, -91.0f);
+    g.fillPath (ears);
+
+    drawLeg (g, { 48.0f, 24.0f }, -0.88f * std::sin (phase),
+             1.08f * std::sin (phase + 0.72f), 57.0f, 58.0f, 14.0f);
+    drawLeg (g, { -57.0f, 26.0f }, -0.78f * std::sin (phase + juce::MathConstants<float>::pi),
+             1.00f * std::sin (phase + juce::MathConstants<float>::pi + 0.82f),
+             58.0f, 54.0f, 12.0f);
+
+    for (int i = 0; i < 9; ++i)
+    {
+        const auto offset = static_cast<float> (i) * 3.2f;
+        juce::Path tail;
+        tail.startNewSubPath (-82.0f, -24.0f + offset);
+        tail.cubicTo (-126.0f, -44.0f + offset, -168.0f, -19.0f - offset,
+                      -224.0f - i * 4.0f, -31.0f + std::sin (phase + i) * 10.0f);
+        g.strokePath (tail, juce::PathStrokeType (8.5f - i * 0.55f));
+    }
+    for (int i = 0; i < 7; ++i)
+    {
+        juce::Path mane;
+        mane.startNewSubPath (72.0f + i * 4.0f, -70.0f - i * 2.0f);
+        mane.cubicTo (41.0f, -89.0f - i * 3.0f, 21.0f - i * 8.0f,
+                      -75.0f + std::sin (phase + i * 0.6f) * 12.0f,
+                      -13.0f - i * 13.0f, -57.0f + i * 2.0f);
+        g.strokePath (mane, juce::PathStrokeType (6.0f - i * 0.45f));
+    }
 }
 
 void LSNebulaAudioProcessorEditor::paint (juce::Graphics& g)
 {
-    g.fillAll (juce::Colours::black);
-    if (trail.isValid())
-        g.drawImageAt (trail, 0, 0);
+    const auto bounds = getLocalBounds().toFloat();
+    g.fillAll (juce::Colour::fromRGB (237, 28, 36));
+
+    const auto centre = bounds.getCentre() + juce::Point<float> (bounds.getWidth() * 0.06f,
+                                                                  -bounds.getHeight() * 0.01f);
+    const auto scale = juce::jmin (bounds.getWidth() / 540.0f, bounds.getHeight() / 420.0f);
+
+    juce::Random streakRandom (7726);
+    for (int i = 0; i < 150; ++i)
+    {
+        const auto y = streakRandom.nextFloat() * bounds.getHeight();
+        const auto x = streakRandom.nextFloat() * bounds.getWidth() * 0.72f;
+        const auto length = 15.0f + streakRandom.nextFloat() * bounds.getWidth() * 0.23f;
+        const auto thickness = 0.35f + streakRandom.nextFloat() * 2.2f;
+        const auto distanceToHorse = std::abs (y - centre.y) / bounds.getHeight();
+        const auto opacity = (0.035f + streakRandom.nextFloat() * 0.11f)
+                           * (1.0f - juce::jlimit (0.0f, 0.8f, distanceToHorse));
+        g.setColour (juce::Colours::black.withAlpha (opacity));
+        g.drawLine (x - length, y, x, y + streakRandom.nextFloat() * 2.0f - 1.0f, thickness);
+    }
+
+    for (int echo = 4; echo >= 1; --echo)
+    {
+        juce::Graphics::ScopedSaveState saved (g);
+        g.setOpacity (0.035f + (4 - echo) * 0.018f);
+        drawHorse (g, centre - juce::Point<float> (echo * 18.0f * scale, 0.0f),
+                   scale, displayPhase - echo * 0.16f);
+    }
+
+    g.setOpacity (1.0f);
+    drawHorse (g, centre, scale, displayPhase);
 }

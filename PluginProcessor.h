@@ -35,6 +35,9 @@ public:
     float getMid() const noexcept { return mid.load(); }
     float getHigh() const noexcept { return high.load(); }
     float getTransient() const noexcept { return transient.load(); }
+    float getHostBpm() const noexcept { return hostBpm.load(); }
+    double getHostPpq() const noexcept { return hostPpq.load(); }
+    bool getHostIsPlaying() const noexcept { return hostIsPlaying.load(); }
     static constexpr int spectrumBandCount = 32;
     float getSpectrumBand (int index) const noexcept
     {
@@ -76,6 +79,9 @@ private:
     double currentSampleRate = 44100.0;
     std::atomic<float> level { 0.0f }, bass { 0.0f }, mid { 0.0f };
     std::atomic<float> high { 0.0f }, transient { 0.0f };
+    std::atomic<float> hostBpm { 120.0f };
+    std::atomic<double> hostPpq { 0.0 };
+    std::atomic<bool> hostIsPlaying { false };
     float envelope = 0.0f;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LSNebulaAudioProcessor)
 };
