@@ -65,7 +65,15 @@ void LSNebulaAudioProcessor::analyseSpectrum() noexcept
         // Compensating here gives a useful approximate dBFS value for the visual threshold.
         const auto decibels = juce::Decibels::gainToDecibels (totalMagnitude / (fftSize * 0.25f), -100.0f);
         spectrumDecibels[static_cast<size_t> (band)].store (decibels);
-        auto target = juce::jlimit (0.0f, 1.0f, juce::jmap (decibels, -84.0f, -24.0f, 0.0f, 1.0f));
+
+        // Gentle natural spectral weighting: musical high-frequency content is
+        // normally lower in level than bass/mids, so it receives limited visual
+        // compensation instead of disappearing from the motion.
+        const auto centreFrequency = std::sqrt (f0 * f1);
+        const auto naturalWeight = juce::jlimit (-5.0f, 5.0f,
+                                                  1.5f * std::log2 (centreFrequency / 1000.0f));
+        const auto displayDecibels = decibels + naturalWeight;
+        auto target = juce::jlimit (0.0f, 1.0f, juce::jmap (displayDecibels, -78.0f, -18.0f, 0.0f, 1.0f));
         target = std::sqrt (target);
         const auto old = spectrumBands[static_cast<size_t> (band)].load();
         const auto frequencyPosition = static_cast<float> (band) / static_cast<float> (spectrumBandCount - 1);

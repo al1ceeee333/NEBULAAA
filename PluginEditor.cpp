@@ -55,7 +55,6 @@ void LSNebulaAudioProcessorEditor::timerCallback()
     if (! trail.isValid() || trail.getWidth() != w || trail.getHeight() != h)
         trail = juce::Image (juce::Image::RGB, w, h, true);
 
-    const auto level = processor.getLevel();
     const auto mid = processor.getMid();
     time += 0.0045f + mid * 0.0040f;
     juce::Graphics g (trail);
@@ -142,37 +141,22 @@ void LSNebulaAudioProcessorEditor::timerCallback()
     for (const auto index : order)
     {
         const auto& q = particles[index];
-        const auto energy = processor.getSpectrumBand (q.band);
-        const auto stereoWidth = processor.getSpectrumWidth (q.band);
-        const auto response = energy * energy * (3.0f - 2.0f * energy);
-        const auto colour = nebulaRed.brighter (response * 0.58f);
+        const auto colour = nebulaRed;
 
         const auto front = juce::jmap (juce::jlimit (-1.0f, 1.0f, q.depth), -1.0f, 1.0f, 0.0f, 1.0f);
         const auto layerVisibility = q.layer > 0.95f ? 1.0f : (q.layer > 0.80f ? 0.82f : 0.68f);
-        const auto distanceFromCentre = juce::jlimit (0.0f, 1.0f,
-                                                       q.p.getDistanceFrom (centre) / guideRadius);
-        const auto centreFocus = std::pow (1.0f - distanceFromCentre, 1.65f);
-        const auto edgeFocus = std::pow (distanceFromCentre, 1.8f);
-        const auto spatialFocus = juce::jmap (stereoWidth, centreFocus, edgeFocus);
-
-        // The complete sphere remains visible even at absolute silence. Audio is
-        // added on top as movement and brightness instead of acting as a gate.
+        // Appearance never depends on the input: every particle permanently
+        // keeps the same red core and a soft red halo. Audio only changes motion.
         const auto idleAlpha = (0.34f + front * 0.42f)
                              * layerVisibility
                              * (0.72f + q.brightness * 0.28f);
-        const auto reactiveAlpha = (response * (0.42f + spatialFocus * 0.95f) + level * 0.04f)
-                                 * (0.55f + front * 0.45f)
-                                 * layerVisibility;
-        const auto alpha = juce::jlimit (0.28f, 1.0f,
-                                         idleAlpha + reactiveAlpha);
-        const auto dot = juce::jlimit (0.48f, 1.48f,
-                                       q.size * (0.92f + response * (0.22f + spatialFocus * 0.42f)));
-        if (response > 0.08f)
-        {
-            g.setColour (nebulaRed.withAlpha (response * (0.08f + spatialFocus * 0.30f)));
-            const auto tightGlow = dot * (2.2f + response * 3.8f);
-            g.fillEllipse (q.p.x - tightGlow * 0.5f, q.p.y - tightGlow * 0.5f, tightGlow, tightGlow);
-        }
+        const auto alpha = juce::jlimit (0.30f, 0.88f, idleAlpha);
+        const auto dot = juce::jlimit (0.48f, 1.18f, q.size * 0.96f);
+
+        const auto glow = dot * 3.6f;
+        g.setColour (nebulaRed.withAlpha ((0.055f + front * 0.055f) * layerVisibility));
+        g.fillEllipse (q.p.x - glow * 0.5f, q.p.y - glow * 0.5f, glow, glow);
+
         g.setColour (colour.withAlpha (alpha));
         g.fillEllipse (q.p.x - dot * 0.5f, q.p.y - dot * 0.5f, dot, dot);
     }
