@@ -48,7 +48,7 @@ public:
     {
         return spectrumWidth[static_cast<size_t> (juce::jlimit (0, spectrumBandCount - 1, index))].load();
     }
-    static constexpr int waveformPointCount = 320;
+    static constexpr int waveformPointCount = 512;
     float getMonoWaveformSample (int offset) const noexcept
     {
         const auto write = waveformWritePosition.load();
