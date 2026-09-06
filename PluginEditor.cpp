@@ -83,6 +83,7 @@ void LSNebulaAudioProcessorEditor::timerCallback()
     for (auto& q : particles)
     {
         const auto energy = processor.getSpectrumBand (q.band);
+        const auto stereoWidth = processor.getSpectrumWidth (q.band);
         const auto frequencyPosition = static_cast<float> (q.band)
                                      / static_cast<float> (LSNebulaAudioProcessor::spectrumBandCount - 1);
         const auto motionRate = juce::jmap (frequencyPosition, 0.58f, 2.35f);
@@ -102,9 +103,23 @@ void LSNebulaAudioProcessorEditor::timerCallback()
         const auto baseBreathing = 0.025f * membrane;
         const auto audioDeformation = energy * 0.34f * movementAmount * membrane;
         const auto radius = q.layer * (1.0f + baseBreathing + audioDeformation + fine);
-        const auto x0 = q.direction.x * radius;
-        const auto y0 = q.direction.y * radius;
-        const auto z0 = q.direction.z * radius;
+
+        // Each frequency band owns a different pseudo-random direction. The
+        // direction drifts slowly so hits scatter organically, never jitter.
+        const auto bandSeed = static_cast<float> (q.band) * 1.618034f;
+        auto scatterX = std::sin (bandSeed * 2.17f + localTime * 0.31f);
+        auto scatterY = std::cos (bandSeed * 1.43f - localTime * 0.27f);
+        auto scatterZ = std::sin (bandSeed * 2.91f + localTime * 0.19f);
+        const auto scatterLength = std::sqrt (scatterX * scatterX + scatterY * scatterY
+                                            + scatterZ * scatterZ) + 1.0e-6f;
+        scatterX /= scatterLength;
+        scatterY /= scatterLength;
+        scatterZ /= scatterLength;
+        const auto scatter = std::pow (energy, 1.35f) * (0.10f + stereoWidth * 0.16f);
+
+        const auto x0 = q.direction.x * radius + scatterX * scatter;
+        const auto y0 = q.direction.y * radius + scatterY * scatter;
+        const auto z0 = q.direction.z * radius + scatterZ * scatter;
         const auto x1 = x0 * cy + z0 * sy;
         const auto z1 = -x0 * sy + z0 * cy;
         const auto y2 = y0 * cx - z1 * sx;
@@ -128,28 +143,34 @@ void LSNebulaAudioProcessorEditor::timerCallback()
     {
         const auto& q = particles[index];
         const auto energy = processor.getSpectrumBand (q.band);
-        const auto hot = processor.getSpectrumDecibels (q.band) > -4.0f;
-        const auto colour = hot ? nebulaRed.brighter (0.72f) : nebulaRed;
+        const auto stereoWidth = processor.getSpectrumWidth (q.band);
+        const auto response = energy * energy * (3.0f - 2.0f * energy);
+        const auto colour = nebulaRed.brighter (response * 0.58f);
 
         const auto front = juce::jmap (juce::jlimit (-1.0f, 1.0f, q.depth), -1.0f, 1.0f, 0.0f, 1.0f);
         const auto layerVisibility = q.layer > 0.95f ? 1.0f : (q.layer > 0.80f ? 0.82f : 0.68f);
+        const auto distanceFromCentre = juce::jlimit (0.0f, 1.0f,
+                                                       q.p.getDistanceFrom (centre) / guideRadius);
+        const auto centreFocus = std::pow (1.0f - distanceFromCentre, 1.65f);
+        const auto edgeFocus = std::pow (distanceFromCentre, 1.8f);
+        const auto spatialFocus = juce::jmap (stereoWidth, centreFocus, edgeFocus);
 
         // The complete sphere remains visible even at absolute silence. Audio is
         // added on top as movement and brightness instead of acting as a gate.
         const auto idleAlpha = (0.34f + front * 0.42f)
                              * layerVisibility
                              * (0.72f + q.brightness * 0.28f);
-        const auto reactiveAlpha = (energy * 0.62f + level * 0.08f)
+        const auto reactiveAlpha = (response * (0.42f + spatialFocus * 0.95f) + level * 0.04f)
                                  * (0.55f + front * 0.45f)
                                  * layerVisibility;
         const auto alpha = juce::jlimit (0.28f, 1.0f,
-                                         (idleAlpha + reactiveAlpha) * (hot ? 1.75f : 1.0f));
+                                         idleAlpha + reactiveAlpha);
         const auto dot = juce::jlimit (0.48f, 1.48f,
-                                       q.size * (0.92f + energy * 0.46f + (hot ? 0.18f : 0.0f)));
-        if (hot)
+                                       q.size * (0.92f + response * (0.22f + spatialFocus * 0.42f)));
+        if (response > 0.08f)
         {
-            g.setColour (colour.withAlpha (alpha * 0.36f));
-            const auto tightGlow = dot * 3.2f;
+            g.setColour (nebulaRed.withAlpha (response * (0.08f + spatialFocus * 0.30f)));
+            const auto tightGlow = dot * (2.2f + response * 3.8f);
             g.fillEllipse (q.p.x - tightGlow * 0.5f, q.p.y - tightGlow * 0.5f, tightGlow, tightGlow);
         }
         g.setColour (colour.withAlpha (alpha));

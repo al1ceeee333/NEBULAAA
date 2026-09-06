@@ -9,6 +9,8 @@ LSNebulaAudioProcessor::LSNebulaAudioProcessor()
         band.store (0.0f);
     for (auto& band : spectrumDecibels)
         band.store (-100.0f);
+    for (auto& width : spectrumWidth)
+        width.store (0.0f);
 }
 
 void LSNebulaAudioProcessor::prepareToPlay (double sr, int blockSize)
@@ -16,6 +18,7 @@ void LSNebulaAudioProcessor::prepareToPlay (double sr, int blockSize)
     currentSampleRate = sr;
     fftWritePosition = 0;
     fftData.fill (0.0f);
+    sideFFTData.fill (0.0f);
     juce::dsp::ProcessSpec spec { sr, static_cast<juce::uint32> (blockSize), 1 };
     lowPass.prepare (spec);
     highPass.prepare (spec);
@@ -29,7 +32,9 @@ void LSNebulaAudioProcessor::prepareToPlay (double sr, int blockSize)
 void LSNebulaAudioProcessor::analyseSpectrum() noexcept
 {
     fftWindow.multiplyWithWindowingTable (fftData.data(), fftSize);
+    fftWindow.multiplyWithWindowingTable (sideFFTData.data(), fftSize);
     forwardFFT.performFrequencyOnlyForwardTransform (fftData.data());
+    forwardFFT.performFrequencyOnlyForwardTransform (sideFFTData.data());
 
     constexpr float minimumFrequency = 30.0f;
     const auto maximumFrequency = static_cast<float> (juce::jmin (18000.0, currentSampleRate * 0.48));
@@ -46,12 +51,19 @@ void LSNebulaAudioProcessor::analyseSpectrum() noexcept
                                            static_cast<int> (f1 * fftSize / currentSampleRate));
 
         float peakMagnitude = 0.0f;
+        float sideMagnitude = 0.0f;
         for (int bin = firstBin; bin <= lastBin; ++bin)
+        {
             peakMagnitude = juce::jmax (peakMagnitude, fftData[static_cast<size_t> (bin)]);
+            sideMagnitude = juce::jmax (sideMagnitude, sideFFTData[static_cast<size_t> (bin)]);
+        }
+
+        const auto totalMagnitude = std::sqrt (peakMagnitude * peakMagnitude
+                                             + sideMagnitude * sideMagnitude);
 
         // A Hann window reduces a bin-centred sine to roughly one quarter of N.
         // Compensating here gives a useful approximate dBFS value for the visual threshold.
-        const auto decibels = juce::Decibels::gainToDecibels (peakMagnitude / (fftSize * 0.25f), -100.0f);
+        const auto decibels = juce::Decibels::gainToDecibels (totalMagnitude / (fftSize * 0.25f), -100.0f);
         spectrumDecibels[static_cast<size_t> (band)].store (decibels);
         auto target = juce::jlimit (0.0f, 1.0f, juce::jmap (decibels, -84.0f, -24.0f, 0.0f, 1.0f));
         target = std::sqrt (target);
@@ -61,6 +73,10 @@ void LSNebulaAudioProcessor::analyseSpectrum() noexcept
         const auto release = juce::jmap (frequencyPosition, 0.075f, 0.22f);
         const auto coefficient = target > old ? attack : release;
         spectrumBands[static_cast<size_t> (band)].store (old + (target - old) * coefficient);
+
+        const auto widthTarget = sideMagnitude / (peakMagnitude + sideMagnitude + 1.0e-9f);
+        const auto oldWidth = spectrumWidth[static_cast<size_t> (band)].load();
+        spectrumWidth[static_cast<size_t> (band)].store (oldWidth + (widthTarget - oldWidth) * 0.22f);
     }
 }
 
@@ -80,16 +96,19 @@ void LSNebulaAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
 
     for (int i = 0; i < samples; ++i)
     {
-        float mono = 0.0f;
-        for (int ch = 0; ch < channels; ++ch) mono += buffer.getSample (ch, i);
-        mono /= static_cast<float> (channels);
+        const auto left = buffer.getSample (0, i);
+        const auto right = channels > 1 ? buffer.getSample (1, i) : left;
+        const auto mono = 0.5f * (left + right);
+        const auto side = 0.5f * (left - right);
 
-        fftData[static_cast<size_t> (fftWritePosition++)] = mono;
+        fftData[static_cast<size_t> (fftWritePosition)] = mono;
+        sideFFTData[static_cast<size_t> (fftWritePosition++)] = side;
         if (fftWritePosition == fftSize)
         {
             analyseSpectrum();
             fftWritePosition = 0;
             std::fill (fftData.begin(), fftData.end(), 0.0f);
+            std::fill (sideFFTData.begin(), sideFFTData.end(), 0.0f);
         }
 
         const auto lo = lowPass.processSample (0, mono);
