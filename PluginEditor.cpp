@@ -9,7 +9,7 @@ LSNebulaAudioProcessorEditor::LSNebulaAudioProcessorEditor (LSNebulaAudioProcess
     setResizable (true, true);
     setResizeLimits (400, 400, 1200, 1200);
     setSize (700, 700);
-    particles.resize (4200);
+    particles.resize (9000);
     initialiseParticles();
     startTimerHz (60);
 }
@@ -36,15 +36,15 @@ void LSNebulaAudioProcessorEditor::initialiseParticles()
         q.longitude = std::atan2 (q.direction.z, q.direction.x);
         q.latitude = std::asin (q.direction.y);
         const auto layerChoice = random.nextFloat();
-        q.layer = layerChoice < 0.62f ? 1.0f : (layerChoice < 0.86f ? 0.88f : 0.74f);
+        q.layer = layerChoice < 0.84f ? 1.0f : (layerChoice < 0.95f ? 0.94f : 0.86f);
         const auto frequencyPosition = juce::jlimit (0.0f, 0.999f,
                                                      (q.longitude + juce::MathConstants<float>::pi)
                                                      / juce::MathConstants<float>::twoPi);
         q.band = static_cast<int> (frequencyPosition * LSNebulaAudioProcessor::spectrumBandCount);
         q.phase = random.nextFloat() * juce::MathConstants<float>::twoPi;
         q.speed = 0.75f + random.nextFloat() * 0.50f;
-        q.brightness = 0.38f + random.nextFloat() * 0.62f;
-        q.size = 0.34f + random.nextFloat() * 0.48f;
+        q.brightness = 0.72f + random.nextFloat() * 0.28f;
+        q.size = 0.48f + random.nextFloat() * 0.48f;
     }
 }
 
@@ -87,15 +87,21 @@ void LSNebulaAudioProcessorEditor::timerCallback()
                                      / static_cast<float> (LSNebulaAudioProcessor::spectrumBandCount - 1);
         const auto motionRate = juce::jmap (frequencyPosition, 0.58f, 2.35f);
         const auto localTime = time * motionRate;
-        const auto spatialDetail = juce::jmap (frequencyPosition, 2.2f, 8.5f);
-        const auto membrane = std::sin (q.longitude * spatialDetail + localTime * 1.8f + q.phase * 0.18f)
-                            + 0.55f * std::sin (q.latitude * (spatialDetail + 2.0f) - localTime * 1.35f + q.phase);
-        const auto fine = noise (q.longitude * (1.0f + frequencyPosition),
-                                 q.latitude * (1.3f + frequencyPosition),
-                                 localTime + q.phase) * 0.55f;
-        const auto movementAmount = juce::jmap (frequencyPosition, 1.15f, 0.72f);
-        const auto radius = q.layer * (1.0f + membrane * (0.018f + energy * 0.215f * movementAmount)
-                                            + fine * (0.012f + energy * 0.085f * movementAmount));
+        const auto spatialDetail = juce::jmap (frequencyPosition, 2.0f, 7.2f);
+        // Shared phase fields create the coherent liquid sheets visible in the
+        // reference. Individual random phase is only a tiny surface texture.
+        const auto waveA = std::sin (q.longitude * spatialDetail
+                                   + q.latitude * 2.4f - localTime * 1.75f);
+        const auto waveB = std::sin (q.latitude * (spatialDetail + 1.8f)
+                                   - q.longitude * 1.7f + localTime * 1.28f);
+        const auto waveC = std::sin ((q.longitude + q.latitude) * 3.1f
+                                   + localTime * 0.82f);
+        const auto membrane = waveA * 0.58f + waveB * 0.30f + waveC * 0.12f;
+        const auto fine = std::sin (q.phase + localTime * (1.0f + frequencyPosition)) * 0.012f;
+        const auto movementAmount = juce::jmap (frequencyPosition, 1.22f, 0.78f);
+        const auto baseBreathing = 0.025f * membrane;
+        const auto audioDeformation = energy * 0.34f * movementAmount * membrane;
+        const auto radius = q.layer * (1.0f + baseBreathing + audioDeformation + fine);
         const auto x0 = q.direction.x * radius;
         const auto y0 = q.direction.y * radius;
         const auto z0 = q.direction.z * radius;
@@ -130,16 +136,16 @@ void LSNebulaAudioProcessorEditor::timerCallback()
 
         // The complete sphere remains visible even at absolute silence. Audio is
         // added on top as movement and brightness instead of acting as a gate.
-        const auto idleAlpha = (0.20f + front * 0.30f)
+        const auto idleAlpha = (0.34f + front * 0.42f)
                              * layerVisibility
                              * (0.72f + q.brightness * 0.28f);
         const auto reactiveAlpha = (energy * 0.62f + level * 0.08f)
                                  * (0.55f + front * 0.45f)
                                  * layerVisibility;
-        const auto alpha = juce::jlimit (0.14f, 1.0f,
+        const auto alpha = juce::jlimit (0.28f, 1.0f,
                                          (idleAlpha + reactiveAlpha) * (hot ? 1.75f : 1.0f));
-        const auto dot = juce::jlimit (0.28f, 1.32f,
-                                       q.size * (0.72f + energy * 0.48f + (hot ? 0.22f : 0.0f)));
+        const auto dot = juce::jlimit (0.48f, 1.48f,
+                                       q.size * (0.92f + energy * 0.46f + (hot ? 0.18f : 0.0f)));
         if (hot)
         {
             g.setColour (colour.withAlpha (alpha * 0.36f));
