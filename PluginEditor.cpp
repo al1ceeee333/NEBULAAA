@@ -125,11 +125,19 @@ void LSNebulaAudioProcessorEditor::timerCallback()
         const auto hot = processor.getSpectrumDecibels (q.band) > -4.0f;
         const auto colour = hot ? nebulaRed.brighter (0.72f) : nebulaRed;
 
-        const auto front = juce::jmap (juce::jlimit (-1.0f, 1.0f, q.depth), -1.0f, 1.0f, 0.18f, 1.0f);
-        const auto layerAlpha = q.layer > 0.95f ? 1.0f : (q.layer > 0.80f ? 0.52f : 0.28f);
-        const auto alpha = juce::jlimit (0.015f, 1.0f,
-                                         (0.14f + energy * 0.98f + level * 0.10f)
-                                         * q.brightness * front * layerAlpha * (hot ? 2.55f : 1.0f));
+        const auto front = juce::jmap (juce::jlimit (-1.0f, 1.0f, q.depth), -1.0f, 1.0f, 0.0f, 1.0f);
+        const auto layerVisibility = q.layer > 0.95f ? 1.0f : (q.layer > 0.80f ? 0.82f : 0.68f);
+
+        // The complete sphere remains visible even at absolute silence. Audio is
+        // added on top as movement and brightness instead of acting as a gate.
+        const auto idleAlpha = (0.20f + front * 0.30f)
+                             * layerVisibility
+                             * (0.72f + q.brightness * 0.28f);
+        const auto reactiveAlpha = (energy * 0.62f + level * 0.08f)
+                                 * (0.55f + front * 0.45f)
+                                 * layerVisibility;
+        const auto alpha = juce::jlimit (0.14f, 1.0f,
+                                         (idleAlpha + reactiveAlpha) * (hot ? 1.75f : 1.0f));
         const auto dot = juce::jlimit (0.28f, 1.32f,
                                        q.size * (0.72f + energy * 0.48f + (hot ? 0.22f : 0.0f)));
         if (hot)
